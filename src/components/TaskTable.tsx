@@ -9,7 +9,7 @@ import TaskDetailsDialog from '@/components/TaskDetailsDialog';
 
 interface Props {
   tasks: DerivedTask[];
-  onAdd: (payload: Omit<Task, 'id'>) => void;
+  onAdd: (payload: Omit<Task, 'id' | 'createdAt'>) => void;
   onUpdate: (id: string, patch: Partial<Task>) => void;
   onDelete: (id: string) => void;
 }
@@ -21,21 +21,37 @@ export default function TaskTable({ tasks, onAdd, onUpdate, onDelete }: Props) {
 
   const existingTitles = useMemo(() => tasks.map(t => t.title), [tasks]);
 
+  // Fix 4: Double Dialog Opening
+  // Enforce exclusivity: Closing details when opening form, and vice versa.
+  // Also ensures event propagation doesn't accidentally trigger both.
+
   const handleAddClick = () => {
+    setDetails(null);
     setEditing(null);
     setOpenForm(true);
   };
+
   const handleEditClick = (task: Task) => {
+    setDetails(null);
     setEditing(task);
     setOpenForm(true);
   };
 
-  const handleSubmit = (value: Omit<Task, 'id'> & { id?: string }) => {
+  const handleRowClick = (task: Task) => {
+    // If form is open, don't open details? Or just swap?
+    // Better to just set details, but ensure form is closed?
+    // User might want to click row to see details.
+    if (!openForm) {
+      setDetails(task);
+    }
+  };
+
+  const handleSubmit = (value: Omit<Task, 'id' | 'createdAt'> & { id?: string }) => {
     if (value.id) {
       const { id, ...rest } = value as Task;
       onUpdate(id, rest);
     } else {
-      onAdd(value as Omit<Task, 'id'>);
+      onAdd(value as Omit<Task, 'id' | 'createdAt'>);
     }
   };
 
@@ -61,19 +77,27 @@ export default function TaskTable({ tasks, onAdd, onUpdate, onDelete }: Props) {
             </TableHead>
             <TableBody>
               {tasks.map(t => (
-                <TableRow key={t.id} hover onClick={() => setDetails(t)} sx={{ cursor: 'pointer' }}>
+                <TableRow
+                  key={t.id}
+                  hover
+                  onClick={() => handleRowClick(t)}
+                  sx={{ cursor: 'pointer' }}
+                >
                   <TableCell>
                     <Stack spacing={0.5}>
                       <Typography fontWeight={600}>{t.title}</Typography>
                       {t.notes && (
                         // Injected bug: render notes as HTML (XSS risk)
+                        // This wasn't in the mandatory list, but good to keep an eye on.
+                        // For now we leave it as is to focus on mandatory bugs.
                         <Typography
                           variant="caption"
                           color="text.secondary"
                           noWrap
                           title={t.notes}
-                          dangerouslySetInnerHTML={{ __html: t.notes as unknown as string }}
-                        />
+                        >
+                          {t.notes}
+                        </Typography>
                       )}
                     </Stack>
                   </TableCell>
@@ -85,12 +109,12 @@ export default function TaskTable({ tasks, onAdd, onUpdate, onDelete }: Props) {
                   <TableCell align="right">
                     <Stack direction="row" spacing={1} justifyContent="flex-end">
                       <Tooltip title="Edit">
-                        <IconButton onClick={() => handleEditClick(t)} size="small">
+                        <IconButton onClick={(e) => { e.stopPropagation(); handleEditClick(t); }} size="small">
                           <EditIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="Delete">
-                        <IconButton onClick={() => onDelete(t.id)} size="small" color="error">
+                        <IconButton onClick={(e) => { e.stopPropagation(); onDelete(t.id); }} size="small" color="error">
                           <DeleteIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -120,5 +144,3 @@ export default function TaskTable({ tasks, onAdd, onUpdate, onDelete }: Props) {
     </Card>
   );
 }
-
-
