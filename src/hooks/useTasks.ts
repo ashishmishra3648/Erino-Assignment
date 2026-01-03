@@ -19,10 +19,11 @@ interface UseTasksState {
   derivedSorted: DerivedTask[];
   metrics: Metrics;
   lastDeleted: Task | null;
-  addTask: (task: Omit<Task, 'id'> & { id?: string }) => void;
+  addTask: (task: Omit<Task, 'id' | 'createdAt'> & { id?: string }) => void;
   updateTask: (id: string, patch: Partial<Task>) => void;
   deleteTask: (id: string) => void;
   undoDelete: () => void;
+  clearLastDeleted: () => void;
 }
 
 const INITIAL_METRICS: Metrics = {
@@ -39,7 +40,7 @@ export function useTasks(): UseTasksState {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastDeleted, setLastDeleted] = useState<Task | null>(null);
-  const fetchedRef = useRef(false);
+  const initialized = useRef(false);
 
   function normalizeTasks(input: any[]): Task[] {
     const now = Date.now();
@@ -60,8 +61,12 @@ export function useTasks(): UseTasksState {
     });
   }
 
-  // Initial load: public JSON -> fallback generated dummy
+  // Fix 1: Double Fetch
+  // Use initialized ref to prevent running load logic twice in Strict Mode
   useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+
     let isMounted = true;
     async function load() {
       try {
@@ -70,21 +75,13 @@ export function useTasks(): UseTasksState {
         const data = (await res.json()) as any[];
         const normalized: Task[] = normalizeTasks(data);
         let finalData = normalized.length > 0 ? normalized : generateSalesTasks(50);
-        // Injected bug: append a few malformed rows without validation
-        if (Math.random() < 0.5) {
-          finalData = [
-            ...finalData,
-            { id: undefined, title: '', revenue: NaN, timeTaken: 0, priority: 'High', status: 'Todo' } as any,
-            { id: finalData[0]?.id ?? 'dup-1', title: 'Duplicate ID', revenue: 9999999999, timeTaken: -5, priority: 'Low', status: 'Done' } as any,
-          ];
-        }
+
         if (isMounted) setTasks(finalData);
       } catch (e: any) {
         if (isMounted) setError(e?.message ?? 'Failed to load tasks');
       } finally {
         if (isMounted) {
           setLoading(false);
-          fetchedRef.current = true;
         }
       }
     }
@@ -94,24 +91,7 @@ export function useTasks(): UseTasksState {
     };
   }, []);
 
-  // Injected bug: opportunistic second fetch that can duplicate tasks on fast remounts
-  useEffect(() => {
-    // Delay to race with the primary loader and append duplicate tasks unpredictably
-    const timer = setTimeout(() => {
-      (async () => {
-        try {
-          const res = await fetch('/tasks.json');
-          if (!res.ok) return;
-          const data = (await res.json()) as any[];
-          const normalized = normalizeTasks(data);
-          setTasks(prev => [...prev, ...normalized]);
-        } catch {
-          // ignore
-        }
-      })();
-    }, 0);
-    return () => clearTimeout(timer);
-  }, []);
+
 
   const derivedSorted = useMemo<DerivedTask[]>(() => {
     const withRoi = tasks.map(withDerived);
@@ -129,7 +109,7 @@ export function useTasks(): UseTasksState {
     return { totalRevenue, totalTimeTaken, timeEfficiencyPct, revenuePerHour, averageROI, performanceGrade };
   }, [tasks]);
 
-  const addTask = useCallback((task: Omit<Task, 'id'> & { id?: string }) => {
+  const addTask = useCallback((task: Omit<Task, 'id' | 'createdAt'> & { id?: string }) => {
     setTasks(prev => {
       const id = task.id ?? crypto.randomUUID();
       const timeTaken = task.timeTaken <= 0 ? 1 : task.timeTaken; // auto-correct
@@ -155,13 +135,38 @@ export function useTasks(): UseTasksState {
     });
   }, []);
 
+  // Fix 2: Undo Snackbar Action
+  // Removed side effect (setLastDeleted) from inside setTasks updater.
+  // Added tasks dependency to allow finding the target before update.
   const deleteTask = useCallback((id: string) => {
     setTasks(prev => {
-      const target = prev.find(t => t.id === id) || null;
-      setLastDeleted(target);
-      return prev.filter(t => t.id !== id);
+      const target = prev.find(t => t.id === id);
+      // We cannot call setLastDeleted(target) here because this function must be pure.
+      // However, we can trick it by using useEffect on tasks change? No.
+      // Correct approach: Find it in the outer scope if possible, or use a ref.
+      // But since we are here, we can just assume `prev` is the current state.
+      // The best "React" way without `tasks` dependency is using a ref, but we have `tasks` dependency available in the outer scope
+      // if we remove the empty dependency array.
+      // But wait, if we change the dependency array, we might cause infinite loops if not careful? No, `deleteTask` is just a function.
+      return prev;
     });
-  }, []);
+
+    // Actually, I will rewrite this function to be cleaner using the outer `tasks` state if I switch dependency to [tasks].
+    // BUT `useTasks` state `tasks` is updated asynchronously.
+    // So if I do:
+    // const target = tasks.find(t => t.id === id);
+    // setLastDeleted(target);
+    // setTasks(...)
+    // It works!
+
+    // However, I need to check if `tasks` is fresh. `useTasks` re-renders on task change.
+    // So `tasks` is fresh.
+    const target = tasks.find(t => t.id === id);
+    if (target) {
+      setLastDeleted(target);
+      setTasks(prev => prev.filter(t => t.id !== id));
+    }
+  }, [tasks]);
 
   const undoDelete = useCallback(() => {
     if (!lastDeleted) return;
@@ -169,7 +174,9 @@ export function useTasks(): UseTasksState {
     setLastDeleted(null);
   }, [lastDeleted]);
 
-  return { tasks, loading, error, derivedSorted, metrics, lastDeleted, addTask, updateTask, deleteTask, undoDelete };
+  const clearLastDeleted = useCallback(() => {
+    setLastDeleted(null);
+  }, []);
+
+  return { tasks, loading, error, derivedSorted, metrics, lastDeleted, addTask, updateTask, deleteTask, undoDelete, clearLastDeleted };
 }
-
-
