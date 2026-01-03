@@ -54,6 +54,3 @@ We have successfully identified and resolved the following issues:
     npm run dev
     ```
 
-## 🎥 Demo
-
-A recording of the fixed application can be found in the `public` directory.
