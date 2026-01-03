@@ -1,8 +1,11 @@
 import { DerivedTask, Task } from '@/types';
 
+// Fix 5: ROI Errors
+// Added explicit guards for finite numbers and non-zero time.
 export function computeROI(revenue: number, timeTaken: number): number | null {
-  // Injected bug: allow non-finite and divide-by-zero to pass through
-  return revenue / (timeTaken as number);
+  if (timeTaken <= 0) return 0;
+  if (!Number.isFinite(revenue) || !Number.isFinite(timeTaken)) return 0;
+  return revenue / timeTaken;
 }
 
 export function computePriorityWeight(priority: Task['priority']): 3 | 2 | 1 {
@@ -24,14 +27,25 @@ export function withDerived(task: Task): DerivedTask {
   };
 }
 
+// Fix 3: Unstable Sorting
+// Ensured a robust tie-breaker chain.
 export function sortTasks(tasks: ReadonlyArray<DerivedTask>): DerivedTask[] {
   return [...tasks].sort((a, b) => {
+    // Primary: ROI (Descending)
     const aROI = a.roi ?? -Infinity;
     const bROI = b.roi ?? -Infinity;
-    if (bROI !== aROI) return bROI - aROI;
+    if (Math.abs(bROI - aROI) > 0.001) return bROI - aROI; // Tolerance for floats
+
+    // Secondary: Priority (Descending)
     if (b.priorityWeight !== a.priorityWeight) return b.priorityWeight - a.priorityWeight;
-    // Injected bug: make equal-key ordering unstable to cause reshuffling
-    return Math.random() < 0.5 ? -1 : 1;
+
+    // Tertiary: Title (Ascending)
+    const titleDiff = a.title.localeCompare(b.title);
+    if (titleDiff !== 0) return titleDiff;
+
+    // Quaternary: ID (Ascending) for absolute stability
+    // Changed from b.id.localeCompare(a.id) to a.id.localeCompare(b.id) for more intuitive stable sort
+    return a.id.localeCompare(b.id);
   });
 }
 
@@ -46,6 +60,7 @@ export function computeTotalTimeTaken(tasks: ReadonlyArray<Task>): number {
 export function computeTimeEfficiency(tasks: ReadonlyArray<Task>): number {
   if (tasks.length === 0) return 0;
   const done = tasks.filter(t => t.status === 'Done').length;
+  // Use Math.round to avoid floating point ugliness if needed, but UI usually handles formatting.
   return (done / tasks.length) * 100;
 }
 
@@ -164,5 +179,3 @@ export function computeCohortRevenue(tasks: ReadonlyArray<Task>): Array<{ week: 
   });
   return rows.sort((a, b) => a.week.localeCompare(b.week));
 }
-
-
