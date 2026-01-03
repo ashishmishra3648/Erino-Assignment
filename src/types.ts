@@ -13,6 +13,8 @@ export interface Task {
   completedAt?: string; // ISO date string if Done
 }
 
+export type TaskInput = Omit<Task, 'id' | 'createdAt'>;
+
 export interface DerivedTask extends Task {
   roi: number | null; // null means N/A
   priorityWeight: 3 | 2 | 1;
@@ -26,5 +28,3 @@ export interface Metrics {
   averageROI: number; // average over valid ROI values
   performanceGrade: 'Excellent' | 'Good' | 'Needs Improvement';
 }
-
-

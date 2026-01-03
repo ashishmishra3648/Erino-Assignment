@@ -3,13 +3,13 @@ import { Box, Button, Card, CardContent, IconButton, Stack, Table, TableBody, Ta
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
-import { DerivedTask, Task } from '@/types';
+import { DerivedTask, Task, TaskInput } from '@/types';
 import TaskForm from '@/components/TaskForm';
 import TaskDetailsDialog from '@/components/TaskDetailsDialog';
 
 interface Props {
   tasks: DerivedTask[];
-  onAdd: (payload: Omit<Task, 'id' | 'createdAt'>) => void;
+  onAdd: (payload: TaskInput) => void;
   onUpdate: (id: string, patch: Partial<Task>) => void;
   onDelete: (id: string) => void;
 }
@@ -20,10 +20,6 @@ export default function TaskTable({ tasks, onAdd, onUpdate, onDelete }: Props) {
   const [details, setDetails] = useState<Task | null>(null);
 
   const existingTitles = useMemo(() => tasks.map(t => t.title), [tasks]);
-
-  // Fix 4: Double Dialog Opening
-  // Enforce exclusivity: Closing details when opening form, and vice versa.
-  // Also ensures event propagation doesn't accidentally trigger both.
 
   const handleAddClick = () => {
     setDetails(null);
@@ -38,20 +34,17 @@ export default function TaskTable({ tasks, onAdd, onUpdate, onDelete }: Props) {
   };
 
   const handleRowClick = (task: Task) => {
-    // If form is open, don't open details? Or just swap?
-    // Better to just set details, but ensure form is closed?
-    // User might want to click row to see details.
     if (!openForm) {
       setDetails(task);
     }
   };
 
-  const handleSubmit = (value: Omit<Task, 'id' | 'createdAt'> & { id?: string }) => {
+  const handleSubmit = (value: TaskInput & { id?: string }) => {
     if (value.id) {
       const { id, ...rest } = value as Task;
       onUpdate(id, rest);
     } else {
-      onAdd(value as Omit<Task, 'id' | 'createdAt'>);
+      onAdd(value as TaskInput);
     }
   };
 
@@ -87,9 +80,6 @@ export default function TaskTable({ tasks, onAdd, onUpdate, onDelete }: Props) {
                     <Stack spacing={0.5}>
                       <Typography fontWeight={600}>{t.title}</Typography>
                       {t.notes && (
-                        // Injected bug: render notes as HTML (XSS risk)
-                        // This wasn't in the mandatory list, but good to keep an eye on.
-                        // For now we leave it as is to focus on mandatory bugs.
                         <Typography
                           variant="caption"
                           color="text.secondary"

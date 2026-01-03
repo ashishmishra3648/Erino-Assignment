@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DerivedTask, Metrics, Task } from '@/types';
+import { DerivedTask, Metrics, Task, TaskInput } from '@/types';
 import {
   computeAverageROI,
   computePerformanceGrade,
@@ -19,7 +19,7 @@ interface UseTasksState {
   derivedSorted: DerivedTask[];
   metrics: Metrics;
   lastDeleted: Task | null;
-  addTask: (task: Omit<Task, 'id' | 'createdAt'> & { id?: string }) => void;
+  addTask: (task: TaskInput & { id?: string }) => void;
   updateTask: (id: string, patch: Partial<Task>) => void;
   deleteTask: (id: string) => void;
   undoDelete: () => void;
@@ -109,7 +109,7 @@ export function useTasks(): UseTasksState {
     return { totalRevenue, totalTimeTaken, timeEfficiencyPct, revenuePerHour, averageROI, performanceGrade };
   }, [tasks]);
 
-  const addTask = useCallback((task: Omit<Task, 'id' | 'createdAt'> & { id?: string }) => {
+  const addTask = useCallback((task: TaskInput & { id?: string }) => {
     setTasks(prev => {
       const id = task.id ?? crypto.randomUUID();
       const timeTaken = task.timeTaken <= 0 ? 1 : task.timeTaken; // auto-correct
@@ -139,28 +139,6 @@ export function useTasks(): UseTasksState {
   // Removed side effect (setLastDeleted) from inside setTasks updater.
   // Added tasks dependency to allow finding the target before update.
   const deleteTask = useCallback((id: string) => {
-    setTasks(prev => {
-      const target = prev.find(t => t.id === id);
-      // We cannot call setLastDeleted(target) here because this function must be pure.
-      // However, we can trick it by using useEffect on tasks change? No.
-      // Correct approach: Find it in the outer scope if possible, or use a ref.
-      // But since we are here, we can just assume `prev` is the current state.
-      // The best "React" way without `tasks` dependency is using a ref, but we have `tasks` dependency available in the outer scope
-      // if we remove the empty dependency array.
-      // But wait, if we change the dependency array, we might cause infinite loops if not careful? No, `deleteTask` is just a function.
-      return prev;
-    });
-
-    // Actually, I will rewrite this function to be cleaner using the outer `tasks` state if I switch dependency to [tasks].
-    // BUT `useTasks` state `tasks` is updated asynchronously.
-    // So if I do:
-    // const target = tasks.find(t => t.id === id);
-    // setLastDeleted(target);
-    // setTasks(...)
-    // It works!
-
-    // However, I need to check if `tasks` is fresh. `useTasks` re-renders on task change.
-    // So `tasks` is fresh.
     const target = tasks.find(t => t.id === id);
     if (target) {
       setLastDeleted(target);
